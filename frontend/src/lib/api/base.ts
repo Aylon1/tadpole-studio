@@ -1,4 +1,4 @@
-const DEFAULT_BASE_URL = "http://localhost:8000";
+const DEFAULT_BASE_URL = "http://localhost:8500";
 
 export function getBaseUrl(): string {
   if (typeof window !== "undefined") {

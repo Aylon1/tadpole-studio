@@ -13,6 +13,23 @@ from pathlib import Path
 from urllib.request import urlopen
 from urllib.error import URLError
 
+
+def _load_env_file(env_path: Path) -> None:
+    """Load variables from a .env file into the environment."""
+    if not env_path.exists():
+        return
+    with open(env_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            # Only set if not already in environment
+            if key and key not in os.environ:
+                os.environ[key] = value
+
 ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT / "backend"
 FRONTEND_DIR = ROOT / "frontend"
@@ -192,6 +209,9 @@ def main() -> None:
     print(f"\n{CYAN}{BOLD}  Tadpole Studio  {RESET}")
     print(f"  {CYAN}Local AI Music Generation{RESET}\n")
 
+    # Load .env file if it exists
+    _load_env_file(ROOT / ".env")
+
     if not check_prerequisites():
         log("Missing prerequisites. See above.", RED)
         sys.exit(1)
@@ -210,8 +230,14 @@ def main() -> None:
     if "--install" in sys.argv:
         install_dependencies()
 
-    log(f"Starting backend on {CYAN}http://localhost:8000{RESET}")
-    log(f"Starting frontend on {CYAN}http://localhost:3000{RESET}")
+    # Read configuration from environment variables
+    backend_port = int(os.getenv("TADPOLE_PORT", "8000"))
+    frontend_port = int(os.getenv("TADPOLE_PORT", "8000")) + 1000  # Frontend runs on port 1000 higher by default
+    # Allow custom frontend port via TADPOLE_FRONTEND_PORT
+    frontend_port = int(os.getenv("TADPOLE_FRONTEND_PORT", str(frontend_port)))
+
+    log(f"Starting backend on {CYAN}http://localhost:{backend_port}{RESET}")
+    log(f"Starting frontend on {CYAN}http://localhost:{frontend_port}{RESET}")
     print()
 
     procs: list[subprocess.Popen] = []
@@ -239,19 +265,30 @@ def main() -> None:
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
+    # Build environment for backend with all Tadpole config
+    backend_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    backend_env["NEXT_PUBLIC_TADPOLE_API_PORT"] = str(backend_port)
+
     # Start backend
     backend = _popen(
         ["uv", "run", "--no-sync", "tadpole-studio"],
         cwd=BACKEND_DIR,
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        env=backend_env,
     )
     procs.append(backend)
+
+    # Build environment for frontend
+    frontend_env = {
+        **os.environ,
+        "NEXT_TELEMETRY_DISABLED": "1",
+        "PORT": str(frontend_port),
+    }
 
     # Start frontend
     frontend = _popen(
         ["pnpm", "dev"],
         cwd=FRONTEND_DIR,
-        env={**os.environ, "NEXT_TELEMETRY_DISABLED": "1"},
+        env=frontend_env,
     )
     procs.append(frontend)
 
@@ -259,7 +296,7 @@ def main() -> None:
     if "--no-open" not in sys.argv:
         opener = threading.Thread(
             target=open_browser_when_ready,
-            args=("http://localhost:3000",),
+            args=(f"http://localhost:{frontend_port}",),
             daemon=True,
         )
         opener.start()
