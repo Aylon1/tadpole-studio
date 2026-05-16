@@ -57,7 +57,7 @@ describe("api client", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8000/api/generate",
+      "http://localhost:8500/api/generate",
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining('"caption":"test song"'),
@@ -116,7 +116,7 @@ describe("api client", () => {
 
     expect(result).toEqual({ deleted: 2 });
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8000/api/songs/bulk-delete",
+      "http://localhost:8500/api/songs/bulk-delete",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ song_ids: ["id-1", "id-2"] }),
@@ -138,7 +138,7 @@ describe("api client", () => {
 
     expect(result).toEqual({ updated: 3 });
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8000/api/songs/bulk",
+      "http://localhost:8500/api/songs/bulk",
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({
@@ -152,7 +152,7 @@ describe("api client", () => {
   it("getSongAudioUrl returns correct URL", async () => {
     const { getSongAudioUrl } = await import("../client");
     const url = getSongAudioUrl("abc-123");
-    expect(url).toBe("http://localhost:8000/api/songs/abc-123/audio");
+    expect(url).toBe("http://localhost:8500/api/songs/abc-123/audio");
   });
 
   it("fetchSongVariations calls correct endpoint", async () => {
@@ -169,6 +169,6 @@ describe("api client", () => {
     await fetchSongVariations("song-42");
 
     const calledUrl = mockFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toBe("http://localhost:8000/api/songs/song-42/variations");
+    expect(calledUrl).toBe("http://localhost:8500/api/songs/song-42/variations");
   });
 });

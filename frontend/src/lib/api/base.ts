@@ -2,13 +2,36 @@ const DEFAULT_BASE_URL = "http://localhost:8500";
 
 export function getBaseUrl(): string {
   if (typeof window !== "undefined") {
-    return localStorage.getItem("tadpole-studio-backend-url") || DEFAULT_BASE_URL;
+    // First check localStorage for backward compatibility
+    const storedUrl = localStorage.getItem("tadpole-studio-backend-url");
+    if (storedUrl) {
+      return storedUrl;
+    }
+    
+    // If on a non-localhost hostname (like tjkserver), use current host with backend port
+    const hostname = window.location.hostname;
+    if (hostname !== "localhost" && hostname !== "127.0.0.1") {
+      return `http://${hostname}:8500`;
+    }
   }
   return DEFAULT_BASE_URL;
 }
 
 export function getWsUrl(): string {
-  return getBaseUrl().replace(/^http/, "ws");
+  if (typeof window !== "undefined") {
+    // First check localStorage for backward compatibility
+    const storedUrl = localStorage.getItem("tadpole-studio-backend-url");
+    if (storedUrl) {
+      return storedUrl.replace(/^http/, "ws");
+    }
+    
+    // If on a non-localhost hostname (like tjkserver), use current host with backend port
+    const hostname = window.location.hostname;
+    if (hostname !== "localhost" && hostname !== "127.0.0.1") {
+      return `ws://${hostname}:8500`;
+    }
+  }
+  return DEFAULT_BASE_URL.replace(/^http/, "ws");
 }
 
 export async function request<T>(

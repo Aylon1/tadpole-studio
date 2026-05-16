@@ -50,7 +50,7 @@ class Settings:
         origin.strip()
         for origin in os.getenv(
             "TADPOLE_CORS_ORIGINS",
-            "http://localhost:3000,http://127.0.0.1:3000",
+            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8700,http://127.0.0.1:8700,http://0.0.0.0:8700",
         ).split(",")
         if origin.strip()
     ]
