@@ -13,6 +13,7 @@ import { useGenerationStore } from "@/stores/generation-store";
 import { useGpuStore } from "@/stores/gpu-store";
 import { useActiveBackend } from "@/hooks/use-active-backend";
 import { MODE_TO_TASK_TYPE } from "@/lib/constants";
+import { generateId } from "@/lib/utils";
 import { registerAutoGenSubmit, unregisterAutoGenSubmit } from "./use-generation-ws";
 import type { GenerateRequest, BackendType } from "@/types/api";
 
@@ -171,7 +172,7 @@ export function useGeneration() {
 
     // Add job to queue immediately so sidebar shows it right away
     // (before any API calls that might block on GPU lock)
-    const tempJobId = crypto.randomUUID();
+    const tempJobId = generateId();
     addJob({
       jobId: tempJobId,
       status: "queued",
@@ -197,7 +198,8 @@ export function useGeneration() {
         });
 
         // Check if job was cancelled during sample creation
-        const jobAfterSample = useGenerationStore.getState().activeJobs.find((j) => j.jobId === tempJobId);
+        // WebSocket may have already swapped tempJobId -> serverJobId, so check for both.
+        const jobAfterSample = useGenerationStore.getState().activeJobs.find((j) => j.jobId === tempJobId || j.jobId === serverJobId);
         if (!jobAfterSample || jobAfterSample.status === "cancelling") {
           if (jobAfterSample) {
             setTimeout(() => useGenerationStore.getState().removeJob(tempJobId), 1000);
@@ -244,7 +246,8 @@ export function useGeneration() {
         });
 
         // Check if job was cancelled during sample creation
-        const jobAfterSample = useGenerationStore.getState().activeJobs.find((j) => j.jobId === tempJobId);
+        // WebSocket may have already swapped tempJobId -> serverJobId, so check for both.
+        const jobAfterSample = useGenerationStore.getState().activeJobs.find((j) => j.jobId === tempJobId || j.jobId === serverJobId);
         if (!jobAfterSample || jobAfterSample.status === "cancelling") {
           if (jobAfterSample) {
             setTimeout(() => useGenerationStore.getState().removeJob(tempJobId), 1000);
@@ -292,8 +295,10 @@ export function useGeneration() {
       }
 
       // Cancelled during submitGeneration? Cancel the real backend job.
+      // Note: WebSocket may have already swapped tempJobId -> serverJobId,
+      // so we need to check for both.
       const jobAfterSubmit = useGenerationStore.getState().activeJobs.find(
-        (j) => j.jobId === tempJobId,
+        (j) => j.jobId === tempJobId || j.jobId === serverJobId,
       );
       if (!jobAfterSubmit || jobAfterSubmit.status === "cancelling") {
         cancelJob(serverJobId).catch(() => {});

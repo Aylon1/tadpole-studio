@@ -26,3 +26,8 @@ export function formatDurationMs(ms: number | null): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
+
+/** Generate a unique ID for client-side tracking (e.g., temporary job IDs). */
+export function generateId(): string {
+  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+}

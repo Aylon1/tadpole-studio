@@ -499,7 +499,7 @@ async def get_gpu_stats() -> GpuStatsResponse:
         import torch
 
         if torch.cuda.is_available():
-            vram_used = torch.cuda.memory_allocated() / (1024 * 1024)
+            vram_used = torch.cuda.memory_reserved() / (1024 * 1024)
             vram_total = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
             return GpuStatsResponse(
                 device=device,
