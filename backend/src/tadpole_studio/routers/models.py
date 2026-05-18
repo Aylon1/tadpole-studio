@@ -55,7 +55,7 @@ class ModelsResponse(BaseModel):
 def _scan_checkpoints(active_chat_llm: str = "") -> ModelsResponse:
     checkpoints_dir = Path(settings.ACESTEP_PROJECT_ROOT) / "checkpoints"
     chat_llm_dir = Path(settings.ACESTEP_PROJECT_ROOT) / "chat-llm"
-    heartmula_dir = Path(settings.ACESTEP_PROJECT_ROOT) / "heartmula"
+    heartmula_dir = Path(settings.HEARTMULA_MODEL_PATH) if settings.HEARTMULA_MODEL_PATH else Path(settings.ACESTEP_PROJECT_ROOT) / "heartmula"
     dit_models: list[ModelInfo] = []
     lm_models: list[ModelInfo] = []
     chat_llm_models: list[ModelInfo] = []
@@ -221,7 +221,7 @@ async def list_available_models() -> AvailableModelsResponse:
         ))
 
     # Append HeartMuLa models
-    heartmula_dir = Path(settings.ACESTEP_PROJECT_ROOT) / "heartmula"
+    heartmula_dir = Path(settings.HEARTMULA_MODEL_PATH) if settings.HEARTMULA_MODEL_PATH else Path(settings.ACESTEP_PROJECT_ROOT) / "heartmula"
     for name, repo_id in _HEARTMULA_REGISTRY.items():
         installed = (heartmula_dir / name).exists()
         downloading = generation_service.model_download_status.get(name) == "downloading"
@@ -476,17 +476,17 @@ async def switch_backend(request: SwitchBackendRequest) -> dict[str, str]:
 # Folder names must match what heartlib expects:
 #   {pretrained_path}/HeartMuLa-oss-{version}  and  {pretrained_path}/HeartCodec-oss
 _HEARTMULA_REGISTRY: dict[str, str] = {
-    "HeartMuLa-oss-3B": "HeartMuLa/HeartMuLa-oss-3B",
+    "HeartMuLa-oss-RL-3B-20260123": "HeartMuLa/HeartMuLa-oss-RL-3B-20260123",
     "HeartCodec-oss": "HeartMuLa/HeartCodec-oss-20260123",
 }
 
 _HEARTMULA_SIZES: dict[str, int] = {
-    "HeartMuLa-oss-3B": 15_800,
+    "HeartMuLa-oss-RL-3B-20260123": 15_800,
     "HeartCodec-oss": 6_640,
 }
 
 _HEARTMULA_DESCRIPTIONS: dict[str, str] = {
-    "HeartMuLa-oss-3B": "3B parameter music generation model with superior lyrics controllability. ~15.8 GB.",
+    "HeartMuLa-oss-RL-3B-20260123": "3B parameter music generation model with superior lyrics controllability. ~15.8 GB.",
     "HeartCodec-oss": "Audio codec for HeartMuLa. Required for generation. ~6.6 GB.",
 }
 

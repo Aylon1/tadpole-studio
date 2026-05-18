@@ -4,18 +4,10 @@ import { useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useGenerationStore } from "@/stores/generation-store";
 import { usePlayerStore } from "@/stores/player-store";
+import { getBaseUrl } from "@/lib/api/base";
 import type { AudioResult, SongResponse } from "@/types/api";
 import { GenerationProgress } from "./generation-progress";
 import { ResultCard } from "./result-card";
-
-function getAudioUrl(path: string): string {
-  const filename = path.split(/[/\\]/).pop() ?? "";
-  const base =
-    typeof window !== "undefined"
-      ? localStorage.getItem("tadpole-studio-backend-url") || "http://localhost:8000"
-      : "http://localhost:8000";
-  return `${base}/audio/${filename}`;
-}
 
 function buildSyntheticSong(
   r: AudioResult,
@@ -74,7 +66,7 @@ export function ResultsPanel() {
       job.results.forEach((r, i) => {
         const song = buildSyntheticSong(r, i, job.jobId, job.historyId, job.generatedTitle, job.results.length);
         songs.push(song);
-        urls[song.id] = getAudioUrl(r.path);
+        urls[song.id] = `${getBaseUrl()}/audio/${r.path.split(/[/\\]/).pop() ?? ""}`;
       });
     }
     return { allSongs: songs, urlMap: urls };

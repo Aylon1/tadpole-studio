@@ -18,6 +18,7 @@ import { useGenerationStore } from "@/stores/generation-store";
 import { usePlayerStore } from "@/stores/player-store";
 import { saveSongToLibrary } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
+import { getBaseUrl } from "@/lib/api/base";
 import type { AudioResult } from "@/types/api";
 
 interface ResultCardProps {
@@ -27,15 +28,6 @@ interface ResultCardProps {
   historyId: string | null;
   jobId: string;
   onPlayInMiniPlayer: (jobId: string, index: number) => void;
-}
-
-function getAudioUrl(path: string): string {
-  const filename = path.split(/[/\\]/).pop() ?? "";
-  const base =
-    typeof window !== "undefined"
-      ? localStorage.getItem("tadpole-studio-backend-url") || "http://localhost:8000"
-      : "http://localhost:8000";
-  return `${base}/audio/${filename}`;
 }
 
 export function ResultCard({ result, index, batchSize, historyId, jobId, onPlayInMiniPlayer }: ResultCardProps) {
@@ -53,7 +45,7 @@ export function ResultCard({ result, index, batchSize, historyId, jobId, onPlayI
   const activeMode = useGenerationStore((s) => s.activeMode);
   const remixSourceId = useGenerationStore((s) => s.remixForm.sourceSongId);
   const repaintSourceId = useGenerationStore((s) => s.repaintForm.sourceSongId);
-  const audioUrl = getAudioUrl(result.path);
+  const audioUrl = `${getBaseUrl()}/audio/${result.path.split(/[/\\]/).pop() ?? ""}`;
   const { wsRef, isPlaying, playPause } = useWaveSurfer(waveformRef, audioUrl);
 
   useEffect(() => {
