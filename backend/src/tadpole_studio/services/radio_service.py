@@ -459,16 +459,17 @@ class RadioService:
             {
                 "role": "system",
                 "content": (
-                    "You are an AI songwriter. Write full, complete lyrics that perfectly "
-                    "fit the given music caption and vibe. Include a standard song structure "
-                    "like [Verse 1], [Chorus], [Verse 2], etc. The length should vary naturally "
-                    "depending on the style. Output ONLY the lyrics text. Do not include "
-                    f"any markdown formatting outside of the structure tags.{lang_instruction}"
+                    "You are an expert songwriter. Your task is to write ORIGINAL, POETIC song lyrics "
+                    "based on the given musical vibe. You MUST NOT just rewrite the prompt. "
+                    "Write actual rhyming, emotive lyrics meant to be sung by a vocalist. "
+                    "You MUST use standard structural tags like [Verse 1], [Chorus], [Verse 2], [Bridge], [Outro]. "
+                    "Output ONLY the lyrics text. Do not include explanations."
+                    f"{lang_instruction}"
                 ),
             },
             {
                 "role": "user",
-                "content": f"Station: {station.name}\nCaption: {caption}",
+                "content": f"Do not repeat this description. Use it only as inspiration for the vibe.\n\nStation: {station.name}\nVibe/Caption: {caption}\n\nNow, write the original lyrics:",
             },
         ]
 
