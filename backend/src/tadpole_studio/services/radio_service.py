@@ -305,17 +305,15 @@ class RadioService:
 
         system_prompt = custom_prompt if custom_prompt.strip() else RADIO_DEFAULT_SYSTEM_PROMPT
 
-        if not provider_name or provider_name == "none":
-            return (None, "", system_prompt)
+        if provider_name and provider_name != "none":
+            provider = get_provider(provider_name)
+            if provider is not None:
+                await self._ensure_api_key_loaded(provider_name)
+                if await provider.is_available():
+                    return (provider, model_name, system_prompt)
+                logger.warning(f"Radio LLM provider '{provider_name}' unavailable, trying fallbacks")
 
-        provider = get_provider(provider_name)
-        if provider is not None:
-            await self._ensure_api_key_loaded(provider_name)
-            if await provider.is_available():
-                return (provider, model_name, system_prompt)
-            logger.warning(f"Radio LLM provider '{provider_name}' unavailable, trying fallbacks")
-
-        # Fallback to Ollama (e.g. on Windows where built-in MLX is unavailable)
+        # Fallback to Ollama (e.g. on Windows where built-in MLX is unavailable, or none selected)
         if provider_name != "ollama":
             ollama = get_provider("ollama")
             if ollama is not None and await ollama.is_available():
@@ -440,6 +438,52 @@ class RadioService:
 
         return None
 
+    async def _generate_lyrics_with_llm(
+        self, station: StationResponse, caption: str
+    ) -> str:
+        """Generate lyrics for the station if it is not instrumental."""
+        if station.instrumental:
+            return ""
+
+        provider, model_name, _prompt = await self._get_radio_llm()
+        if provider is None:
+            return ""
+
+        logger.info(f"Radio lyrics: generating via {provider.name}/{model_name or 'default'}")
+        
+        lang_instruction = ""
+        if station.vocal_language and station.vocal_language != "unknown":
+            lang_instruction = f" Write the lyrics entirely in this language: {station.vocal_language}."
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an AI songwriter. Write full, complete lyrics that perfectly "
+                    "fit the given music caption and vibe. Include a standard song structure "
+                    "like [Verse 1], [Chorus], [Verse 2], etc. The length should vary naturally "
+                    "depending on the style. Output ONLY the lyrics text. Do not include "
+                    f"any markdown formatting outside of the structure tags.{lang_instruction}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Station: {station.name}\nCaption: {caption}",
+            },
+        ]
+
+        try:
+            import re
+            raw = await provider.chat(messages, model=model_name, max_tokens=800)
+            cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+            if cleaned:
+                logger.info(f"Radio LLM lyrics generated via {provider.name}")
+                return cleaned
+        except Exception as e:
+            logger.warning(f"Radio LLM lyrics generation failed ({provider.name}): {e}")
+
+        return ""
+
     async def generate_next_track(self, station_id: str) -> dict[str, Any]:
         """Generate the next track for a radio station.
 
@@ -457,6 +501,22 @@ class RadioService:
 
         # Try LLM caption generation BEFORE GPU lock (it's a network call)
         llm_caption = await self._generate_caption_with_llm(station)
+        
+        # Resolve caption now so we can generate lyrics for it
+        caption = llm_caption
+        if not caption:
+            caption = station.caption_template
+            if caption and station.mood and station.genre:
+                caption = caption.replace("{mood}", station.mood).replace("{genre}", station.genre)
+            elif not caption:
+                tpl_parts = []
+                if station.genre:
+                    tpl_parts.append(station.genre)
+                if station.mood:
+                    tpl_parts.append(f"{station.mood} mood")
+                caption = f"A {' '.join(tpl_parts)} track" if tpl_parts else "A music track"
+
+        llm_lyrics = await self._generate_lyrics_with_llm(station, caption)
 
         # Wait for GPU availability (radio can afford to wait for prior generation)
         acquired = await gpu_lock.await_acquire("radio")
@@ -478,23 +538,6 @@ class RadioService:
 
             duration = random.uniform(station.duration_min, station.duration_max)
 
-            # Build caption: prefer LLM-generated, fallback to template
-            if llm_caption:
-                caption = llm_caption
-            else:
-                caption = station.caption_template
-                if caption and station.mood and station.genre:
-                    caption = caption.replace("{mood}", station.mood).replace(
-                        "{genre}", station.genre
-                    )
-                elif not caption:
-                    tpl_parts = []
-                    if station.genre:
-                        tpl_parts.append(station.genre)
-                    if station.mood:
-                        tpl_parts.append(f"{station.mood} mood")
-                    caption = f"A {' '.join(tpl_parts)} track" if tpl_parts else "A music track"
-
             # Parse advanced params
             advanced = {}
             if station.advanced_params_json:
@@ -506,7 +549,7 @@ class RadioService:
             params_dict: dict[str, Any] = {
                 "task_type": "text2music",
                 "caption": caption,
-                "lyrics": "",
+                "lyrics": llm_lyrics,
                 "instrumental": station.instrumental,
                 "vocal_language": station.vocal_language,
                 "duration": duration,
@@ -641,7 +684,7 @@ class RadioService:
                             file_format,
                             duration,
                             caption,
-                            "",
+                            llm_lyrics,
                             bpm,
                             station.keyscale,
                             station.timesignature,

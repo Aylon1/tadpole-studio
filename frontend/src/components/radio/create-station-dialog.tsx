@@ -17,6 +17,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { createStation } from "@/lib/api/radio-client";
 
 interface CreateStationDialogProps {
@@ -32,6 +39,8 @@ const INITIAL_FORM = {
   mood: "",
   caption_template: "",
   instrumental: false,
+  vocal_language: "en",
+  audio_format: "flac",
   bpm_min: "",
   bpm_max: "",
   duration_min: "",
@@ -47,6 +56,8 @@ type FormState = {
   mood: string;
   caption_template: string;
   instrumental: boolean;
+  vocal_language: string;
+  audio_format: string;
   bpm_min: string;
   bpm_max: string;
   duration_min: string;
@@ -81,6 +92,10 @@ export function CreateStationDialog({
         ? Number(form.duration_max)
         : undefined;
 
+      const advancedParams = {
+        audio_format: form.audio_format,
+      };
+
       return createStation({
         name: form.name.trim(),
         description: form.description.trim() || undefined,
@@ -88,12 +103,14 @@ export function CreateStationDialog({
         mood: form.mood.trim() || undefined,
         instrumental: form.instrumental,
         caption_template: form.caption_template.trim() || undefined,
+        vocal_language: form.vocal_language,
         bpm_min: bpmMin ?? null,
         bpm_max: bpmMax ?? null,
         duration_min: durationMin,
         duration_max: durationMax,
         keyscale: form.keyscale.trim() || undefined,
         timesignature: form.timesignature.trim() || undefined,
+        advanced_params_json: JSON.stringify(advancedParams),
       });
     },
     onSuccess: () => {
@@ -189,18 +206,60 @@ export function CreateStationDialog({
             </p>
           </div>
 
-          {/* Instrumental */}
-          <div className="flex items-center justify-between rounded-lg border border-border p-3">
-            <Label htmlFor="station-instrumental" className="cursor-pointer">
-              Instrumental
-            </Label>
-            <Switch
-              id="station-instrumental"
-              checked={form.instrumental}
-              onCheckedChange={(checked) =>
-                updateField("instrumental", checked)
-              }
-            />
+          {/* Instrumental + Audio Format */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <Label htmlFor="station-instrumental" className="cursor-pointer">
+                Instrumental
+              </Label>
+              <Switch
+                id="station-instrumental"
+                checked={form.instrumental}
+                onCheckedChange={(checked) =>
+                  updateField("instrumental", checked)
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Audio Format</Label>
+              <Select
+                value={form.audio_format}
+                onValueChange={(v) => updateField("audio_format", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Format" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="flac">FLAC</SelectItem>
+                  <SelectItem value="mp3">MP3</SelectItem>
+                  <SelectItem value="wav">WAV</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Language */}
+          <div className="space-y-1.5">
+            <Label>Vocal Language</Label>
+            <Select
+              value={form.vocal_language}
+              onValueChange={(v) => updateField("vocal_language", v)}
+              disabled={form.instrumental}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Language" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="en">English</SelectItem>
+                <SelectItem value="ja">Japanese</SelectItem>
+                <SelectItem value="ko">Korean</SelectItem>
+                <SelectItem value="zh">Chinese</SelectItem>
+                <SelectItem value="es">Spanish</SelectItem>
+                <SelectItem value="fr">French</SelectItem>
+                <SelectItem value="de">German</SelectItem>
+                <SelectItem value="unknown">Auto / Any</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* BPM Range */}
