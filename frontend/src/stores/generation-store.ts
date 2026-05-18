@@ -169,6 +169,7 @@ interface GenerationState {
   setCustomTitle: (v: string) => void;
   swapJobId: (oldId: string, newId: string) => void;
   removeJob: (jobId: string) => void;
+  removeVariant: (jobId: string, index: number) => void;
   hideJob: (jobId: string) => void;
   clearJobs: () => void;
   setJobTitle: (jobId: string, title: string) => void;
@@ -374,6 +375,23 @@ export const useGenerationStore = create<GenerationState>()((set) => ({
   removeJob: (jobId) =>
     set((s) => ({
       activeJobs: s.activeJobs.filter((j) => j.jobId !== jobId),
+    })),
+
+  removeVariant: (jobId, index) =>
+    set((s) => ({
+      activeJobs: s.activeJobs.map((j) => {
+        if (j.jobId === jobId) {
+          const newResults = [...j.results];
+          newResults.splice(index, 1);
+          // Also adjust savedVariants to match new indices if necessary, 
+          // or just clear it for simplicity. But safely filtering out the index:
+          const newSavedVariants = j.savedVariants
+            .filter((v) => v !== index)
+            .map((v) => (v > index ? v - 1 : v));
+          return { ...j, results: newResults, savedVariants: newSavedVariants };
+        }
+        return j;
+      }).filter((j) => j.results.length > 0 || j.status === "queued" || j.status === "running"),
     })),
 
   hideJob: (jobId) =>

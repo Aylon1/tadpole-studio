@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useWaveSurfer } from "@/hooks/use-wavesurfer";
-import { Play, Pause, Save, Loader2, FileText } from "lucide-react";
+import { Play, Pause, Save, Loader2, FileText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useGenerationStore } from "@/stores/generation-store";
 import { usePlayerStore } from "@/stores/player-store";
-import { saveSongToLibrary } from "@/lib/api/client";
+import { saveSongToLibrary, deleteGenerationResult } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { getBaseUrl } from "@/lib/api/base";
 import type { AudioResult } from "@/types/api";
@@ -33,11 +33,13 @@ interface ResultCardProps {
 export function ResultCard({ result, index, batchSize, historyId, jobId, onPlayInMiniPlayer }: ResultCardProps) {
   const waveformRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const saved = useGenerationStore(
     (s) => s.activeJobs.find((j) => j.jobId === jobId)?.savedVariants.includes(index) ?? false,
   );
   const markVariantSaved = useGenerationStore((s) => s.markVariantSaved);
+  const removeVariant = useGenerationStore((s) => s.removeVariant);
 
   const queryClient = useQueryClient();
   const currentSongId = usePlayerStore((s) => s.currentSong?.id);
@@ -116,6 +118,23 @@ export function ResultCard({ result, index, batchSize, historyId, jobId, onPlayI
     }
   }, [result, index, batchSize, historyId, isSaving, saved, queryClient, activeMode, remixSourceId, repaintSourceId, markVariantSaved, jobId, generatedTitle]);
 
+  const handleDelete = useCallback(async () => {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const filename = result.path.split(/[/\\]/).pop() ?? "";
+      if (filename) {
+        await deleteGenerationResult(filename);
+      }
+      removeVariant(jobId, index);
+      toast.success("Moved to trash");
+    } catch (err) {
+      toast.error("Failed to delete file");
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [isDeleting, result.path, jobId, index, removeVariant]);
+
   const seed = result.params?.seed;
   const lyrics = (result.params?.lyrics as string) ?? "";
 
@@ -161,6 +180,20 @@ export function ResultCard({ result, index, batchSize, historyId, jobId, onPlayI
               Lyrics
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={handleDelete}
+            disabled={isDeleting}
+            title="Move to Trash"
+          >
+            {isDeleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
           <Button
             variant={saved ? "secondary" : "default"}
             size="sm"

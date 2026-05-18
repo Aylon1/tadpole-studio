@@ -17,6 +17,8 @@ class RadioAudioEngine {
   private _ctx: AudioContext | null = null;
   private _gain: GainNode | null = null;
   private _worklet: AudioWorkletNode | null = null;
+  private _source: AudioBufferSourceNode | null = null;
+  private _useWorklet: boolean = true;
   private _modulePromise: Promise<void> | null = null;
   private _buffers = new Map<string, AudioBuffer>();
   private _currentSongId: string | null = null;
@@ -48,8 +50,12 @@ class RadioAudioEngine {
    * The AudioContext must already exist.
    */
   private ensureWorklet(): Promise<void> {
+    const ctx = this.ensureContextSync();
+    if (!ctx.audioWorklet) {
+      this._useWorklet = false;
+      return Promise.resolve();
+    }
     if (!this._modulePromise) {
-      const ctx = this.ensureContextSync();
       this._modulePromise = ctx.audioWorklet.addModule(
         "/radio-worklet-processor.js",
       );
@@ -89,7 +95,7 @@ class RadioAudioEngine {
     const buffer = this._buffers.get(songId);
     if (!buffer) return false;
 
-    this.stopWorklet();
+    this.stopNodes();
     // Set immediately so duration getter works before await resolves
     this._currentSongId = songId;
     this._offset = 0;
@@ -104,37 +110,54 @@ class RadioAudioEngine {
       await ctx.resume();
     }
 
-    // Extract channel data — slice() copies from the cached AudioBuffer so the
-    // cache stays intact for repeat / re-play. Transfer moves ownership to the
-    // worklet thread (zero-copy handoff, no shared memory).
-    const channels: Float32Array[] = [];
-    const transferables: ArrayBuffer[] = [];
-    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-      const copy = buffer.getChannelData(ch).slice();
-      channels.push(copy);
-      transferables.push(copy.buffer);
+    if (this._useWorklet) {
+      // Extract channel data — slice() copies from the cached AudioBuffer so the
+      // cache stays intact for repeat / re-play. Transfer moves ownership to the
+      // worklet thread (zero-copy handoff, no shared memory).
+      const channels: Float32Array[] = [];
+      const transferables: ArrayBuffer[] = [];
+      for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+        const copy = buffer.getChannelData(ch).slice();
+        channels.push(copy);
+        transferables.push(copy.buffer);
+      }
+
+      const worklet = new AudioWorkletNode(ctx, "radio-processor", {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [buffer.numberOfChannels],
+      });
+      worklet.connect(this._gain!);
+      worklet.port.onmessage = (e) => {
+        if (e.data.type === "ended") {
+          this._playing = false;
+          this._offset = 0;
+          this.stopTimeupdateTimer();
+          this.onended?.();
+        }
+      };
+      worklet.port.postMessage(
+        { type: "load", channels, length: buffer.length, startPos: 0 },
+        transferables,
+      );
+
+      this._worklet = worklet;
+    } else {
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this._gain!);
+      source.onended = () => {
+        if (this._playing && this._currentSongId === songId) {
+          this._playing = false;
+          this._offset = 0;
+          this.stopTimeupdateTimer();
+          this.onended?.();
+        }
+      };
+      source.start(0, this._offset);
+      this._source = source;
     }
 
-    const worklet = new AudioWorkletNode(ctx, "radio-processor", {
-      numberOfInputs: 0,
-      numberOfOutputs: 1,
-      outputChannelCount: [buffer.numberOfChannels],
-    });
-    worklet.connect(this._gain!);
-    worklet.port.onmessage = (e) => {
-      if (e.data.type === "ended") {
-        this._playing = false;
-        this._offset = 0;
-        this.stopTimeupdateTimer();
-        this.onended?.();
-      }
-    };
-    worklet.port.postMessage(
-      { type: "load", channels, length: buffer.length, startPos: 0 },
-      transferables,
-    );
-
-    this._worklet = worklet;
     this._startCtxTime = ctx.currentTime;
     this._playing = true;
     this.startTimeupdateTimer();
@@ -142,33 +165,89 @@ class RadioAudioEngine {
   }
 
   pause(): void {
-    if (!this._playing || !this._worklet) return;
+    if (!this._playing) return;
     this._offset = this.currentTime;
-    this._worklet.port.postMessage({ type: "pause" });
+    
+    if (this._useWorklet && this._worklet) {
+      this._worklet.port.postMessage({ type: "pause" });
+    } else if (!this._useWorklet && this._source) {
+      this._source.stop();
+      this._source.disconnect();
+      this._source = null;
+    }
+    
     this._playing = false;
     this.stopTimeupdateTimer();
   }
 
   resume(): void {
-    if (this._playing || !this._worklet || !this._ctx) return;
-    this._worklet.port.postMessage({ type: "resume" });
+    if (this._playing || !this._ctx) return;
+    
+    if (this._useWorklet && this._worklet) {
+      this._worklet.port.postMessage({ type: "resume" });
+    } else if (!this._useWorklet) {
+      const buffer = this._currentSongId
+        ? this._buffers.get(this._currentSongId)
+        : null;
+      if (buffer) {
+        const source = this._ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this._gain!);
+        source.onended = () => {
+          if (this._playing && this._source === source) {
+            this._playing = false;
+            this._offset = 0;
+            this.stopTimeupdateTimer();
+            this.onended?.();
+          }
+        };
+        source.start(0, this._offset);
+        this._source = source;
+      }
+    }
+    
     this._startCtxTime = this._ctx.currentTime;
     this._playing = true;
     this.startTimeupdateTimer();
   }
 
   seek(time: number): void {
-    if (!this._worklet) return;
     const buffer = this._currentSongId
       ? this._buffers.get(this._currentSongId)
       : null;
     if (!buffer) return;
 
     this._offset = Math.max(0, Math.min(time, buffer.duration));
-    const samplePos = Math.round(this._offset * buffer.sampleRate);
-    this._worklet.port.postMessage({ type: "seek", position: samplePos });
-    if (this._playing && this._ctx) {
-      this._startCtxTime = this._ctx.currentTime;
+    
+    if (this._useWorklet && this._worklet) {
+      const samplePos = Math.round(this._offset * buffer.sampleRate);
+      this._worklet.port.postMessage({ type: "seek", position: samplePos });
+      if (this._playing && this._ctx) {
+        this._startCtxTime = this._ctx.currentTime;
+      }
+    } else if (!this._useWorklet) {
+      const wasPlaying = this._playing;
+      if (wasPlaying && this._source) {
+        this._source.stop();
+        this._source.disconnect();
+        this._source = null;
+      }
+      if (wasPlaying) {
+        const source = this._ctx!.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this._gain!);
+        source.onended = () => {
+          if (this._playing && this._source === source) {
+            this._playing = false;
+            this._offset = 0;
+            this.stopTimeupdateTimer();
+            this.onended?.();
+          }
+        };
+        source.start(0, this._offset);
+        this._source = source;
+        this._startCtxTime = this._ctx!.currentTime;
+      }
     }
   }
 
@@ -179,7 +258,7 @@ class RadioAudioEngine {
   }
 
   stop(): void {
-    this.stopWorklet();
+    this.stopNodes();
     this._currentSongId = null;
     this._offset = 0;
   }
@@ -210,11 +289,20 @@ class RadioAudioEngine {
 
   // -- Internal helpers --
 
-  private stopWorklet(): void {
+  private stopNodes(): void {
     if (this._worklet) {
       this._worklet.port.postMessage({ type: "stop" });
       this._worklet.disconnect();
       this._worklet = null;
+    }
+    if (this._source) {
+      try {
+        this._source.stop();
+      } catch (e) {
+        // ignore if already stopped
+      }
+      this._source.disconnect();
+      this._source = null;
     }
     this._playing = false;
     this.stopTimeupdateTimer();

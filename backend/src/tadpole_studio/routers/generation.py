@@ -462,6 +462,25 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
     )
 
 
+@router.delete("/result/{filename}")
+async def delete_generation_result(filename: str) -> dict:
+    import os
+    from tadpole_studio.config import settings
+    
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+        
+    file_path = os.path.join(settings.AUDIO_DIR, filename)
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            return {"deleted": True}
+        except Exception as e:
+            logger.error(f"Failed to delete {file_path}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to delete file")
+    return {"deleted": False}
+
+
 format_router = APIRouter(tags=["generation"])
 
 

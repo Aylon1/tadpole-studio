@@ -90,6 +90,9 @@ export const fetchJobStatus = (jobId: string) =>
 export const cancelJob = (jobId: string) =>
   request<{ message: string }>(`/generate/${jobId}/cancel`, { method: "POST" });
 
+export const deleteGenerationResult = (filename: string) =>
+  request<{ deleted: boolean }>(`/generate/result/${encodeURIComponent(filename)}`, { method: "DELETE" });
+
 // Format & Sample
 export const formatCaption = (params: FormatRequest) =>
   request<FormatResponse>("/format", {
