@@ -88,3 +88,5 @@ class RadioSettingsUpdate(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     system_prompt: Optional[str] = None
+    api_key: Optional[str] = None
+    api_base: Optional[str] = None

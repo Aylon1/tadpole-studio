@@ -187,6 +187,8 @@ async def update_radio_settings(body: RadioSettingsUpdate) -> RadioSettingsRespo
         provider=body.provider,
         model=body.model,
         system_prompt=body.system_prompt,
+        api_key=body.api_key,
+        api_base=body.api_base,
     )
     return RadioSettingsResponse(**info)
 

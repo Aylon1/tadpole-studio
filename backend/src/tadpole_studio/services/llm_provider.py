@@ -327,12 +327,98 @@ class AnthropicProvider(LLMProvider):
         return ["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"]
 
 
+class OpenAICompatibleProvider(LLMProvider):
+    name = "openai-compatible"
+    requires_api_key = False
+
+    def __init__(self) -> None:
+        self._api_key = "dummy"
+        self._api_base = ""
+
+    def set_api_key(self, key: str) -> None:
+        # We can reuse this method to set api_base for compatibility, or add a new one.
+        # Let's just define a specific method for api_base, or read from env/db.
+        pass
+
+    def set_api_base(self, base: str) -> None:
+        self._api_base = base
+
+    @property
+    def has_api_base(self) -> bool:
+        return bool(self._api_base)
+
+    @property
+    def package_installed(self) -> bool:
+        try:
+            import openai  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    async def is_available(self) -> bool:
+        if not self._api_base:
+            return False
+        try:
+            import openai  # noqa: F401
+            import httpx
+            # Simple ping to the models endpoint or just checking base URL reachability
+            async with httpx.AsyncClient(timeout=5) as client:
+                try:
+                    resp = await client.get(f"{self._api_base}/models")
+                    if resp.status_code in (200, 401, 403): # 401/403 means it's there but needs auth
+                        return True
+                    else:
+                        logger.warning(f"OpenAICompatibleProvider connection test returned status {resp.status_code}")
+                        return False
+                except Exception as e:
+                    logger.warning(f"OpenAICompatibleProvider connection failed: {e}")
+                    return False
+        except ImportError:
+            return False
+
+    async def chat(self, messages: list[dict[str, str]], model: str, max_tokens: int = 1024, temperature: float = 0.0) -> str:
+        logger.info(f"LLM chat [openai-compatible] base={self._api_base} model={model} temp={temperature}")
+        import openai
+        client = openai.AsyncOpenAI(api_key=self._api_key, base_url=self._api_base)
+        kwargs: dict = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        try:
+            response = await client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+        except openai.BadRequestError as e:
+            if "temperature" in str(e):
+                kwargs.pop("temperature")
+                response = await client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+            else:
+                raise
+        return response.choices[0].message.content or ""
+
+    def list_models(self) -> list[str]:
+        return []
+        
+    async def list_models_async(self) -> list[str]:
+        """Query /v1/models to get available models."""
+        if not self._api_base:
+            return []
+        try:
+            import openai
+            client = openai.AsyncOpenAI(api_key=self._api_key, base_url=self._api_base)
+            models = await client.models.list()
+            return [m.id for m in models.data]
+        except Exception as e:
+            logger.warning(f"Failed to list models for openai-compatible provider: {e}")
+            return []
+
+
 # Provider registry — "built-in" first so it's the default
 _providers: dict[str, LLMProvider] = {
     "built-in": MLXChatProvider(),
     "ollama": OllamaProvider(),
     "openai": OpenAIProvider(),
     "anthropic": AnthropicProvider(),
+    "openai-compatible": OpenAICompatibleProvider(),
 }
 
 

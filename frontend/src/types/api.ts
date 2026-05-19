@@ -553,6 +553,8 @@ export interface DJProviderInfo {
   requires_api_key: boolean;
   models: string[];
   has_stored_api_key?: boolean;
+  has_api_base?: boolean;
+  api_base?: string;
   package_installed?: boolean;
   unavailable_reason?: string;
 }

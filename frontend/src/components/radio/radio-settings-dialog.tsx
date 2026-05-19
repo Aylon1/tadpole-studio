@@ -310,6 +310,24 @@ export function RadioSettingsDialog({
                     </div>
                   )}
 
+                {!isNoneProvider &&
+                  activeProviderInfo?.name === "openai-compatible" &&
+                  !activeProviderInfo.has_api_base && (
+                    <div className="flex items-start gap-2 rounded-md bg-yellow-500/10 p-3 text-sm text-yellow-600 dark:text-yellow-500">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        This provider requires an API base URL. Configure it on the{" "}
+                        <a
+                          href="/models"
+                          className="underline underline-offset-2 hover:text-yellow-700 dark:hover:text-yellow-400"
+                        >
+                          Models
+                        </a>{" "}
+                        page.
+                      </span>
+                    </div>
+                  )}
+
                 {/* Model selector */}
                 {!isNoneProvider && (
                   <div className="space-y-2">

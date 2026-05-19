@@ -85,19 +85,32 @@ class DJService:
     async def _ensure_api_key_loaded(self, provider_name: str) -> None:
         """Load stored API key for a provider if it doesn't have one from env vars."""
         provider = get_provider(provider_name)
-        if not provider or not provider.requires_api_key:
+        if not provider:
             return
-        if hasattr(provider, "has_api_key") and provider.has_api_key:
+            
+        db = await get_db()
+        
+        if provider_name == "openai-compatible":
+            if hasattr(provider, "set_api_base") and not getattr(provider, "has_api_base", False):
+                cursor = await db.execute("SELECT value FROM settings WHERE key = 'openai_compatible_api_base'")
+                row = await cursor.fetchone()
+                if row:
+                    getattr(provider, "set_api_base")(row["value"])
             return
 
-        db = await get_db()
+        if not provider.requires_api_key:
+            return
+            
+        if hasattr(provider, "has_api_key") and getattr(provider, "has_api_key", False):
+            return
+
         settings_key = f"{provider_name}_api_key"
         cursor = await db.execute(
             "SELECT value FROM settings WHERE key = ?", (settings_key,)
         )
         row = await cursor.fetchone()
         if row and hasattr(provider, "set_api_key"):
-            provider.set_api_key(row["value"])
+            getattr(provider, "set_api_key")(row["value"])
 
     async def list_conversations(self) -> list[dict[str, Any]]:
         db = await get_db()
@@ -569,13 +582,14 @@ class DJService:
         """Get info about available LLM providers."""
         db = await get_db()
         cursor = await db.execute(
-            "SELECT key, value FROM settings WHERE key IN ('dj_provider', 'dj_model', 'dj_system_prompt', 'openai_api_key', 'anthropic_api_key')"
+            "SELECT key, value FROM settings WHERE key IN ('dj_provider', 'dj_model', 'dj_system_prompt', 'openai_api_key', 'anthropic_api_key', 'openai_compatible_api_base')"
         )
         rows = await cursor.fetchall()
         active_provider = "built-in"
         active_model = "Qwen2.5-1.5B-Instruct-4bit"
         custom_system_prompt = ""
         stored_api_keys: dict[str, str] = {}
+        api_bases: dict[str, str] = {}
         for r in rows:
             if r["key"] == "dj_provider":
                 active_provider = r["value"]
@@ -587,22 +601,36 @@ class DJService:
                 stored_api_keys["openai"] = r["value"]
             elif r["key"] == "anthropic_api_key":
                 stored_api_keys["anthropic"] = r["value"]
+            elif r["key"] == "openai_compatible_api_base":
+                api_bases["openai-compatible"] = r["value"]
 
         # Apply stored API keys to providers that don't have an env var key
         for provider_name, stored_key in stored_api_keys.items():
             provider = get_provider(provider_name)
-            if provider and hasattr(provider, "set_api_key") and not provider.has_api_key:
-                provider.set_api_key(stored_key)
+            if provider and hasattr(provider, "set_api_key") and not getattr(provider, "has_api_key", False):
+                getattr(provider, "set_api_key")(stored_key)
+                
+        # Apply API base
+        for provider_name, stored_base in api_bases.items():
+            provider = get_provider(provider_name)
+            if provider and hasattr(provider, "set_api_base") and not getattr(provider, "has_api_base", False):
+                getattr(provider, "set_api_base")(stored_base)
 
         providers_info = []
         for name, provider in get_all_providers().items():
             available = await provider.is_available()
+            has_api_base = False
+            if name == "openai-compatible":
+                has_api_base = name in api_bases
+
             providers_info.append({
                 "name": name,
                 "available": available,
                 "requires_api_key": provider.requires_api_key,
                 "models": await provider.list_models_async(),
                 "has_stored_api_key": name in stored_api_keys,
+                "has_api_base": has_api_base,
+                "api_base": api_bases.get(name, ""),
                 "package_installed": getattr(provider, "package_installed", True),
                 "unavailable_reason": getattr(provider, "unavailable_reason", ""),
             })
@@ -621,6 +649,7 @@ class DJService:
         model: Optional[str] = None,
         system_prompt: Optional[str] = None,
         api_key: Optional[str] = None,
+        api_base: Optional[str] = None,
     ) -> dict[str, Any]:
         db = await get_db()
         if provider is not None:
@@ -653,7 +682,20 @@ class DJService:
                     (settings_key, api_key),
                 )
                 if hasattr(llm_provider, "set_api_key"):
-                    llm_provider.set_api_key(api_key)
+                    getattr(llm_provider, "set_api_key")(api_key)
+                    
+        # Store API base for compatible providers
+        if api_base is not None and provider == "openai-compatible":
+            llm_provider = get_provider(provider)
+            if llm_provider:
+                settings_key = "openai_compatible_api_base"
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                    (settings_key, api_base),
+                )
+                if hasattr(llm_provider, "set_api_base"):
+                    getattr(llm_provider, "set_api_base")(api_base)
+                    
         await db.commit()
         return await self.get_providers_info()
 

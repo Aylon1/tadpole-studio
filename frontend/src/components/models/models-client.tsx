@@ -66,11 +66,14 @@ export function ModelsClient() {
     retry: false,
   });
 
+  const [savingField, setSavingField] = useState<'url' | 'model' | 'key' | null>(null);
+
   const djSettingsMutation = useMutation({
     mutationFn: updateDJSettings,
     onSuccess: (data, variables) => {
       queryClient.setQueryData(["dj-providers"], data);
-      // Skip generic toast when saving an API key (inline onSuccess handles it)
+      setSavingField(null);
+      
       if (variables.api_key) return;
       const activeProvider = data.providers.find(
         (p) => p.name === data.active_provider
@@ -85,6 +88,7 @@ export function ModelsClient() {
       }
     },
     onError: (err: Error) => {
+      setSavingField(null);
       toast.error(`Failed to save DJ settings: ${err.message}`);
     },
   });
@@ -109,6 +113,8 @@ export function ModelsClient() {
   // Which provider tab is currently being viewed (not necessarily the active one)
   const [viewingProvider, setViewingProvider] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiBaseInput, setApiBaseInput] = useState("");
+  const [customModelInput, setCustomModelInput] = useState("");
 
   useEffect(() => {
     if (!djProvidersQuery.data) return;
@@ -120,10 +126,25 @@ export function ModelsClient() {
     }
   }, [djProvidersQuery.data, viewingProvider]);
 
-  // Reset API key input when switching provider tabs
+  // Handle auto-filling values when switching tabs
   useEffect(() => {
     setApiKeyInput("");
-  }, [viewingProvider]);
+    if (djProvidersQuery.data && viewingProvider) {
+      const provider = djProvidersQuery.data.providers.find(p => p.name === viewingProvider);
+      if (provider) {
+        setApiBaseInput(provider.api_base || "");
+      }
+      
+      if (djProvidersQuery.data.active_provider === viewingProvider) {
+        setCustomModelInput(djProvidersQuery.data.active_model || "");
+      } else {
+        setCustomModelInput("");
+      }
+    } else {
+      setApiBaseInput("");
+      setCustomModelInput("");
+    }
+  }, [viewingProvider]); // Removed djProvidersQuery.data from deps to avoid overwriting user typing on background refetch
 
   const handleSelectDJModel = (provider: string, model: string) => {
     djSettingsMutation.mutate({ provider, model });
@@ -554,7 +575,6 @@ export function ModelsClient() {
                                         { provider: provider.name, api_key: apiKeyInput.trim() },
                                         {
                                           onSuccess: () => {
-                                            setApiKeyInput("");
                                             toast.success("API key saved");
                                           },
                                         }
@@ -567,6 +587,110 @@ export function ModelsClient() {
                                     {provider.has_stored_api_key ? "Update" : "Save"}
                                   </Button>
                                 </div>
+                              </div>
+                            )}
+
+                            {/* API base input for OpenAI Compatible provider */}
+                            {provider.name === "openai-compatible" && (
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <p className="text-xs text-muted-foreground">
+                                    Enter the custom endpoint URL (e.g., http://localhost:8000/v1)
+                                  </p>
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      type="text"
+                                      placeholder={provider.has_api_base ? provider.api_base : "http://localhost:8000/v1"}
+                                      value={apiBaseInput}
+                                      onChange={(e) => setApiBaseInput(e.target.value)}
+                                      className="font-mono text-sm"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      disabled={!apiBaseInput.trim() || djSettingsMutation.isPending}
+                                      onClick={() => {
+                                        setSavingField('url');
+                                        djSettingsMutation.mutate(
+                                          { provider: provider.name, api_base: apiBaseInput.trim() },
+                                          {
+                                            onSuccess: () => {
+                                              toast.success("API base URL saved");
+                                            },
+                                          }
+                                        );
+                                      }}
+                                    >
+                                      {djSettingsMutation.isPending && savingField === 'url' ? (
+                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                      ) : null}
+                                      {provider.has_api_base ? "Update" : "Save"}
+                                    </Button>
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs text-muted-foreground">
+                                      Enter Model Name (e.g., qwen3.6 or mistral-7b)
+                                    </p>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      className="h-auto px-2 py-1 text-xs text-muted-foreground"
+                                      onClick={async () => {
+                                        toast.info("Fetching available models...");
+                                        const res = await djProvidersQuery.refetch();
+                                        const refreshedProvider = res.data?.providers.find((p: any) => p.name === "openai-compatible");
+                                        if (refreshedProvider && refreshedProvider.models && refreshedProvider.models.length > 0) {
+                                          setCustomModelInput(refreshedProvider.models[0]);
+                                          toast.success(`Found model: ${refreshedProvider.models[0]}`);
+                                        } else {
+                                          toast.error("Could not fetch models automatically. Please check your URL.");
+                                        }
+                                      }}
+                                    >
+                                      Auto-Detect Model
+                                    </Button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      type="text"
+                                      placeholder="Model name"
+                                      value={customModelInput}
+                                      onChange={(e) => setCustomModelInput(e.target.value)}
+                                      className="font-mono text-sm"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      disabled={!customModelInput.trim() || djSettingsMutation.isPending}
+                                      onClick={() => {
+                                        setSavingField('model');
+                                        handleSelectDJModel(provider.name, customModelInput.trim());
+                                      }}
+                                    >
+                                      {djSettingsMutation.isPending && savingField === 'model' ? (
+                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                      ) : null}
+                                      Set Model
+                                    </Button>
+                                  </div>
+                                </div>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="w-full"
+                                  onClick={async () => {
+                                    toast.info("Testing connection...");
+                                    const res = await djProvidersQuery.refetch();
+                                    const refreshedProvider = res.data?.providers.find((p: any) => p.name === "openai-compatible");
+                                    if (refreshedProvider && refreshedProvider.available) {
+                                      toast.success("Connection successful!");
+                                    } else {
+                                      toast.error("Connection failed. Check URL and ensure server is running.");
+                                    }
+                                  }}
+                                >
+                                  Test Connection
+                                </Button>
                               </div>
                             )}
 

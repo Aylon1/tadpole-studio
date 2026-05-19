@@ -39,6 +39,7 @@ export const updateDJSettings = (settings: {
   model?: string;
   system_prompt?: string;
   api_key?: string;
+  api_base?: string;
 }) =>
   request<DJProvidersResponse>("/dj/settings", {
     method: "PATCH",

@@ -43,7 +43,10 @@ class DJProviderInfo(BaseModel):
     requires_api_key: bool
     models: list[str] = Field(default_factory=list)
     has_stored_api_key: bool = False
+    has_api_base: bool = False
+    api_base: Optional[str] = None
     package_installed: bool = True
+    unavailable_reason: Optional[str] = None
 
 
 class DJProvidersResponse(BaseModel):
@@ -59,6 +62,7 @@ class DJSettingsUpdate(BaseModel):
     model: Optional[str] = None
     system_prompt: Optional[str] = None
     api_key: Optional[str] = None
+    api_base: Optional[str] = None
 
 
 class RenameConversationRequest(BaseModel):
