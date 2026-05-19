@@ -25,6 +25,7 @@ class StationResponse(BaseModel):
     last_played_at: Optional[str] = None
     created_at: str = ""
     updated_at: str = ""
+    structure_ids: list[str] = Field(default_factory=list)
 
 
 class CreateStationRequest(BaseModel):
@@ -42,6 +43,7 @@ class CreateStationRequest(BaseModel):
     duration_min: float = 30.0
     duration_max: float = 120.0
     advanced_params_json: str = "{}"
+    structure_ids: list[str] = Field(default_factory=list)
 
 
 class UpdateStationRequest(BaseModel):
@@ -59,6 +61,31 @@ class UpdateStationRequest(BaseModel):
     duration_min: Optional[float] = None
     duration_max: Optional[float] = None
     advanced_params_json: Optional[str] = None
+    structure_ids: Optional[list[str]] = None
+
+
+class SongStructureResponse(BaseModel):
+    id: str
+    name: str
+    genre: str = ""
+    template: str
+    is_system: bool = False
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class CreateSongStructureRequest(BaseModel):
+    name: str
+    genre: str = ""
+    template: str
+    is_system: bool = False
+
+
+class UpdateSongStructureRequest(BaseModel):
+    name: Optional[str] = None
+    genre: Optional[str] = None
+    template: Optional[str] = None
+    is_system: Optional[bool] = None
 
 
 class CreateStationFromSongRequest(BaseModel):

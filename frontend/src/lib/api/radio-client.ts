@@ -8,7 +8,26 @@ import type {
   RadioSettingsResponse,
   RadioSettingsUpdate,
   SongResponse,
+  SongStructure,
 } from "@/types/api";
+
+export const fetchStructures = () =>
+  request<SongStructure[]>("/radio/structures");
+
+export const createStructure = (data: Partial<SongStructure>) =>
+  request<SongStructure>("/radio/structures", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const updateStructure = (id: string, data: Partial<SongStructure>) =>
+  request<SongStructure>(`/radio/structures/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteStructure = (id: string) =>
+  request<{ deleted: boolean }>(`/radio/structures/${id}`, { method: "DELETE" });
 
 export const fetchStations = () =>
   request<StationResponse[]>("/radio/stations");

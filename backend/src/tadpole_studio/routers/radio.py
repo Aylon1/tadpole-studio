@@ -34,6 +34,9 @@ from tadpole_studio.models.radio import (
     StationDetailResponse,
     StationResponse,
     UpdateStationRequest,
+    SongStructureResponse,
+    CreateSongStructureRequest,
+    UpdateSongStructureRequest,
 )
 from tadpole_studio.models.common import SongResponse
 from tadpole_studio.services.radio_service import radio_service
@@ -44,6 +47,30 @@ router = APIRouter(prefix="/radio", tags=["radio"])
 @router.get("/stations", response_model=list[StationResponse])
 async def list_stations() -> list[StationResponse]:
     return await radio_service.list_stations()
+
+@router.get("/structures", response_model=list[SongStructureResponse])
+async def list_structures() -> list[SongStructureResponse]:
+    return await radio_service.list_structures()
+
+@router.post("/structures", response_model=SongStructureResponse)
+async def create_structure(body: CreateSongStructureRequest) -> SongStructureResponse:
+    data = body.model_dump(exclude_unset=True)
+    return await radio_service.create_structure(data)
+
+@router.put("/structures/{structure_id}", response_model=SongStructureResponse)
+async def update_structure(structure_id: str, body: UpdateSongStructureRequest) -> SongStructureResponse:
+    updates = body.model_dump(exclude_unset=True)
+    struct = await radio_service.update_structure(structure_id, updates)
+    if struct is None:
+        raise HTTPException(status_code=404, detail="Structure not found")
+    return struct
+
+@router.delete("/structures/{structure_id}")
+async def delete_structure(structure_id: str) -> dict:
+    deleted = await radio_service.delete_structure(structure_id)
+    if not deleted:
+        raise HTTPException(status_code=400, detail="Structure not found or is a system preset")
+    return {"deleted": True}
 
 
 @router.post("/stations", response_model=StationResponse)

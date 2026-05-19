@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { Loader2 } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -24,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createStation } from "@/lib/api/radio-client";
+import { createStation, fetchStructures } from "@/lib/api/radio-client";
 
 interface CreateStationDialogProps {
   open: boolean;
@@ -47,6 +48,10 @@ const INITIAL_FORM = {
   duration_max: "",
   keyscale: "",
   timesignature: "",
+  structure_ids: [] as string[],
+  intensity: "Moderate",
+  lyrics_style_addons: "",
+  theme_pool: "",
 } as const;
 
 type FormState = {
@@ -64,6 +69,10 @@ type FormState = {
   duration_max: string;
   keyscale: string;
   timesignature: string;
+  structure_ids: string[];
+  intensity: string;
+  lyrics_style_addons: string;
+  theme_pool: string;
 };
 
 export function CreateStationDialog({
@@ -73,6 +82,12 @@ export function CreateStationDialog({
 }: CreateStationDialogProps) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>({ ...INITIAL_FORM });
+
+  const { data: structures = [] } = useQuery({
+    queryKey: ["structures"],
+    queryFn: fetchStructures,
+    enabled: open,
+  });
 
   const updateField = useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -94,6 +109,11 @@ export function CreateStationDialog({
 
       const advancedParams = {
         audio_format: form.audio_format,
+        intensity: form.intensity,
+        lyrics_style_addons: form.lyrics_style_addons,
+        theme_pool: form.theme_pool
+          ? form.theme_pool.split(",").map((t) => t.trim()).filter(Boolean)
+          : [],
       };
 
       return createStation({
@@ -111,6 +131,7 @@ export function CreateStationDialog({
         keyscale: form.keyscale.trim() || undefined,
         timesignature: form.timesignature.trim() || undefined,
         advanced_params_json: JSON.stringify(advancedParams),
+        structure_ids: form.structure_ids,
       });
     },
     onSuccess: () => {
@@ -334,6 +355,84 @@ export function CreateStationDialog({
                 placeholder="e.g. 4/4"
                 value={form.timesignature}
                 onChange={(e) => updateField("timesignature", e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="border-t pt-4 mt-4 space-y-4">
+            <h3 className="text-sm font-medium">Advanced Dynamics & Lyrics</h3>
+            
+            {/* Song Structures */}
+            <div className="space-y-2">
+              <Label>Song Structures</Label>
+              {structures.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                  {structures.map((s) => (
+                    <div key={s.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`structure-${s.id}`}
+                        checked={form.structure_ids.includes(s.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            updateField("structure_ids", [...form.structure_ids, s.id]);
+                          } else {
+                            updateField(
+                              "structure_ids",
+                              form.structure_ids.filter((id) => id !== s.id)
+                            );
+                          }
+                        }}
+                      />
+                      <Label htmlFor={`structure-${s.id}`} className="text-sm font-normal cursor-pointer">
+                        {s.name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No global structures defined yet.</p>
+              )}
+            </div>
+
+            {/* Intensity + Prompt Style Addons */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Intensity</Label>
+                <Select
+                  value={form.intensity}
+                  onValueChange={(v) => updateField("intensity", v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Intensity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Low">Low</SelectItem>
+                    <SelectItem value="Moderate">Moderate</SelectItem>
+                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Extreme">Extreme</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="station-lyrics-addons">Prompt Style Addons</Label>
+                <Input
+                  id="station-lyrics-addons"
+                  placeholder="e.g. Poetic, Aggressive"
+                  value={form.lyrics_style_addons}
+                  onChange={(e) => updateField("lyrics_style_addons", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Theme Pool */}
+            <div className="space-y-1.5">
+              <Label htmlFor="station-theme-pool">Theme Pool (comma-separated)</Label>
+              <Textarea
+                id="station-theme-pool"
+                placeholder="e.g. Heartbreak, Overcoming adversity, Late night driving"
+                value={form.theme_pool}
+                onChange={(e) => updateField("theme_pool", e.target.value)}
+                rows={2}
               />
             </div>
           </div>

@@ -17,12 +17,15 @@ import { StationNowPlaying } from "./station-now-playing";
 import { CreateStationDialog } from "./create-station-dialog";
 import { EditStationDialog } from "./edit-station-dialog";
 import { RadioSettingsDialog } from "./radio-settings-dialog";
+import { StructuresSettingsDialog } from "./structures-settings-dialog";
+import { ListMusic } from "lucide-react";
 
 export function RadioClient() {
   const queryClient = useQueryClient();
   const { activeStationId } = useRadio();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [structuresOpen, setStructuresOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingStation, setEditingStation] = useState<StationResponse | null>(
     null,
@@ -82,6 +85,14 @@ export function RadioClient() {
           >
             <Plus className="h-4 w-4" />
             Create Station
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setStructuresOpen(true)}
+            title="Manage Song Structures"
+          >
+            <ListMusic className="h-5 w-5" />
           </Button>
           <Button
             variant="ghost"
@@ -151,6 +162,12 @@ export function RadioClient() {
       <RadioSettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+      />
+
+      {/* Structures dialog */}
+      <StructuresSettingsDialog
+        open={structuresOpen}
+        onOpenChange={setStructuresOpen}
       />
     </div>
   );

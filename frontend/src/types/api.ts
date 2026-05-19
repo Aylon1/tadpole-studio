@@ -429,6 +429,14 @@ export interface DatasetConfigSummary {
 }
 
 // Radio types
+export interface SongStructure {
+  id: string;
+  name: string;
+  format_description: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StationResponse {
   id: string;
   name: string;
@@ -450,6 +458,7 @@ export interface StationResponse {
   last_played_at: string | null;
   created_at: string;
   updated_at: string;
+  structure_ids: string[];
 }
 
 export interface StationDetailResponse extends StationResponse {
@@ -477,6 +486,7 @@ export interface CreateStationRequest {
   duration_min?: number;
   duration_max?: number;
   advanced_params_json?: string;
+  structure_ids?: string[];
 }
 
 export interface UpdateStationRequest {
@@ -494,6 +504,7 @@ export interface UpdateStationRequest {
   duration_min?: number;
   duration_max?: number;
   advanced_params_json?: string;
+  structure_ids?: string[];
 }
 
 // Radio LLM settings types

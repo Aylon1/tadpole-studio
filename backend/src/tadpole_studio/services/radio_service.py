@@ -15,7 +15,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from tadpole_studio.db.connection import get_db
-from tadpole_studio.models.radio import StationResponse
+from tadpole_studio.models.radio import StationResponse, SongStructureResponse
 from tadpole_studio.services.generation import generation_service
 from tadpole_studio.services.gpu_lock import gpu_lock
 from tadpole_studio.services.llm_provider import get_provider, get_all_providers
@@ -26,7 +26,7 @@ atmosphere, and sonic qualities. Be specific and varied — each caption should 
 feel unique. Output ONLY the caption text, nothing else."""
 
 
-def _row_to_station(row) -> StationResponse:
+def _row_to_station(row, structure_ids: Optional[list[str]] = None) -> StationResponse:
     return StationResponse(
         id=row["id"],
         name=row["name"],
@@ -48,6 +48,7 @@ def _row_to_station(row) -> StationResponse:
         last_played_at=row["last_played_at"],
         created_at=row["created_at"] or "",
         updated_at=row["updated_at"] or "",
+        structure_ids=structure_ids or [],
     )
 
 
@@ -124,18 +125,29 @@ class RadioService:
         if not updates:
             return station
 
-        # Convert bool to int for SQLite
+        structure_ids = updates.pop("structure_ids", None)
+
         if "instrumental" in updates:
             updates["instrumental"] = 1 if updates["instrumental"] else 0
 
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values())
-        values.append(station_id)
+        if updates:
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            values = list(updates.values())
+            values.append(station_id)
 
-        await db.execute(
-            f"UPDATE radio_stations SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
-            values,
-        )
+            await db.execute(
+                f"UPDATE radio_stations SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+                values,
+            )
+
+        if structure_ids is not None:
+            await db.execute("DELETE FROM station_structures WHERE station_id = ?", (station_id,))
+            for struct_id in structure_ids:
+                await db.execute(
+                    "INSERT INTO station_structures (station_id, structure_id) VALUES (?, ?)",
+                    (station_id, struct_id),
+                )
+
         await db.commit()
 
         return await self.get_station(station_id)
@@ -492,38 +504,82 @@ class RadioService:
 
         logger.info(f"Radio lyrics: generating via {provider.name}/{model_name or 'default'}")
         
-        lang_instruction = ""
-        if station.vocal_language and station.vocal_language != "unknown":
-            lang_instruction = f" Write the lyrics entirely in this language: {station.vocal_language}."
+        # Parse advanced parameters
+        advanced_params = {}
+        try:
+            advanced_params = json.loads(station.advanced_params_json) if station.advanced_params_json else {}
+        except Exception:
+            pass
 
         import random
-        # Injecting random themes to force LLM out of deterministic loop
-        random_themes = [
-            "heartbreak", "youthful rebellion", "changing seasons", "a late night drive", 
-            "finding oneself", "overcoming adversity", "falling in love", "nostalgia",
-            "a distant memory", "a fleeting moment", "the beauty of nature", "city life",
-            "a quiet morning", "an epic journey", "betrayal", "hope for the future",
-            "a secret romance", "dancing in the rain", "a farewell", "a new beginning"
-        ]
-        chosen_theme = random.choice(random_themes)
+
+        # Theme selection
+        theme_pool = advanced_params.get("theme_pool", [])
+        if not theme_pool:
+            random_themes = [
+                "heartbreak", "youthful rebellion", "changing seasons", "a late night drive", 
+                "finding oneself", "overcoming adversity", "falling in love", "nostalgia",
+                "a distant memory", "a fleeting moment", "the beauty of nature", "city life",
+                "a quiet morning", "an epic journey", "betrayal", "hope for the future",
+                "a secret romance", "dancing in the rain", "a farewell", "a new beginning"
+            ]
+            theme_pool = random_themes
+
+        station_chosen_theme = random.choice(theme_pool)
+
+        # Style and intensity
+        lyrics_style_addons = advanced_params.get("lyrics_style_addons", "Standard style")
+        intensity = advanced_params.get("intensity", "Moderate")
+
+        # Duration and key
+        duration_min = station.duration_min if station.duration_min else 30.0
+        duration_max = station.duration_max if station.duration_max else 120.0
+        station_duration = round(random.uniform(duration_min, duration_max))
+        station_keyscale = station.keyscale if station.keyscale else "Any key"
+
+        # Structure selection
+        station_chosen_structure = "[Verse 1]\n[Chorus]\n[Verse 2]\n[Chorus]\n[Bridge]\n[Chorus]\n[Outro]"
+        if station.structure_ids:
+            # Fetch structures
+            db = await get_db()
+            placeholders = ",".join("?" for _ in station.structure_ids)
+            cursor = await db.execute(f"SELECT template FROM song_structures WHERE id IN ({placeholders})", station.structure_ids)
+            struct_rows = await cursor.fetchall()
+            if struct_rows:
+                struct_rows_list = list(struct_rows)
+                chosen_row = random.choice(struct_rows_list)
+                station_chosen_structure = chosen_row["template"]
+
+        vocal_lang = station.vocal_language if station.vocal_language and station.vocal_language != "unknown" else "English"
+        genre = station.genre if station.genre else "Pop"
+        mood = station.mood if station.mood else "Standard"
+
+        prompt_text = (
+            f"Write a {genre} song in {vocal_lang} about '{station_chosen_theme}' using this exact structure:\n"
+            f"{station_chosen_structure}\n\n"
+            "STRICT REQUIREMENTS:\n"
+            "1. Write ONLY the song lyrics - no translations, no explanations, no notes\n"
+            f"2. Use ONLY the specified language: {vocal_lang}\n"
+            "3. Follow the structure EXACTLY as shown\n"
+            "4. Format each section header exactly as shown (e.g. [Verse 1])\n"
+            "5. Never include any text outside the lyrics structure\n"
+            f"6. Target Duration: {station_duration}s\n"
+            f"7. Musical Key: {station_keyscale}\n\n"
+            "STYLE GUIDELINES:\n"
+            f"- {lyrics_style_addons}\n"
+            f"- {intensity} feel\n"
+            f"- {mood} mood\n"
+            f"- Concept/Description: {station.description}\n"
+            "- Use vivid imagery and emotional resonance\n"
+            f"- Match the rhythm and phrasing to {genre} conventions\n\n"
+            "BACKGROUND VIBE/CAPTION (For Optional Context):\n"
+            f"{caption}\n\n"
+        )
 
         messages = [
             {
-                "role": "system",
-                "content": (
-                    "You are an expert songwriter. Your task is to write ORIGINAL, POETIC song lyrics "
-                    "based on the given musical vibe. You MUST NOT just rewrite the prompt. "
-                    "Write actual rhyming, emotive lyrics meant to be sung by a vocalist. "
-                    "You MUST use standard structural tags like [Verse 1], [Chorus], [Verse 2], [Bridge], [Outro]. "
-                    f"CRITICAL INSTRUCTION: Before writing the lyrics, secretly pick a completely random narrative theme (like '{chosen_theme}' or something else) "
-                    "that fits this station, so this song is unique from the last one. "
-                    "Output ONLY the lyrics text. Do not include explanations."
-                    f"{lang_instruction}"
-                ),
-            },
-            {
                 "role": "user",
-                "content": f"Do not repeat this description. Use it only as inspiration for the vibe.\n\nStation: {station.name}\nVibe/Caption: {caption}\n\nNow, write the original lyrics:",
+                "content": prompt_text,
             },
         ]
 
@@ -820,6 +876,79 @@ class RadioService:
         from tadpole_studio.routers.songs import _row_to_song
 
         return [_row_to_song(row).model_dump() for row in rows]
+
+    async def list_structures(self) -> list[SongStructureResponse]:
+        db = await get_db()
+        cursor = await db.execute("SELECT * FROM song_structures ORDER BY name ASC")
+        rows = await cursor.fetchall()
+        return [SongStructureResponse(**row) for row in rows]
+
+    async def get_structure(self, structure_id: str) -> Optional[SongStructureResponse]:
+        db = await get_db()
+        cursor = await db.execute("SELECT * FROM song_structures WHERE id = ?", (structure_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return SongStructureResponse(**row)
+
+    async def create_structure(self, data: dict[str, Any]) -> SongStructureResponse:
+        db = await get_db()
+        structure_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        
+        await db.execute(
+            """INSERT INTO song_structures (id, name, genre, template, is_system, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                structure_id,
+                data.get("name"),
+                data.get("genre", ""),
+                data.get("template"),
+                1 if data.get("is_system") else 0,
+                now,
+                now,
+            )
+        )
+        await db.commit()
+        struct = await self.get_structure(structure_id)
+        assert struct is not None
+        return struct
+
+    async def update_structure(self, structure_id: str, data: dict[str, Any]) -> Optional[SongStructureResponse]:
+        db = await get_db()
+        struct = await self.get_structure(structure_id)
+        if struct is None:
+            return None
+            
+        if not data:
+            return struct
+            
+        if "is_system" in data:
+            data["is_system"] = 1 if data["is_system"] else 0
+            
+        set_clause = ", ".join(f"{k} = ?" for k in data)
+        values = list(data.values())
+        values.append(structure_id)
+        
+        await db.execute(
+            f"UPDATE song_structures SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+            values
+        )
+        await db.commit()
+        return await self.get_structure(structure_id)
+
+    async def delete_structure(self, structure_id: str) -> bool:
+        db = await get_db()
+        cursor = await db.execute("SELECT is_system FROM song_structures WHERE id = ?", (structure_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return False
+        if bool(row["is_system"]):
+            return False
+            
+        await db.execute("DELETE FROM song_structures WHERE id = ?", (structure_id,))
+        await db.commit()
+        return True
 
 
 radio_service = RadioService()

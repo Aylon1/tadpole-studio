@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Loader2 } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -17,7 +17,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { updateStation } from "@/lib/api/radio-client";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { updateStation, fetchStructures } from "@/lib/api/radio-client";
 import type { StationResponse } from "@/types/api";
 
 interface EditStationDialogProps {
@@ -40,6 +48,10 @@ interface FormState {
   duration_max: string;
   keyscale: string;
   timesignature: string;
+  structure_ids: string[];
+  intensity: string;
+  lyrics_style_addons: string;
+  theme_pool: string;
 }
 
 export function EditStationDialog({
@@ -49,6 +61,12 @@ export function EditStationDialog({
   onUpdated,
 }: EditStationDialogProps) {
   const queryClient = useQueryClient();
+  const { data: structures = [] } = useQuery({
+    queryKey: ["structures"],
+    queryFn: fetchStructures,
+    enabled: open,
+  });
+
   const [form, setForm] = useState<FormState>({
     name: "",
     description: "",
@@ -62,10 +80,31 @@ export function EditStationDialog({
     duration_max: "",
     keyscale: "",
     timesignature: "",
+    structure_ids: [],
+    intensity: "Moderate",
+    lyrics_style_addons: "",
+    theme_pool: "",
   });
 
   useEffect(() => {
     if (station) {
+      let intensity = "Moderate";
+      let lyrics_style_addons = "";
+      let theme_pool = "";
+      
+      try {
+        if (station.advanced_params_json) {
+          const params = JSON.parse(station.advanced_params_json);
+          intensity = params.intensity || "Moderate";
+          lyrics_style_addons = params.lyrics_style_addons || "";
+          if (Array.isArray(params.theme_pool)) {
+            theme_pool = params.theme_pool.join(", ");
+          }
+        }
+      } catch (e) {
+        console.error("Failed to parse advanced params", e);
+      }
+
       setForm({
         name: station.name,
         description: station.description,
@@ -79,6 +118,10 @@ export function EditStationDialog({
         duration_max: String(station.duration_max),
         keyscale: station.keyscale,
         timesignature: station.timesignature,
+        structure_ids: station.structure_ids || [],
+        intensity,
+        lyrics_style_addons,
+        theme_pool,
       });
     }
   }, [station]);
@@ -103,6 +146,19 @@ export function EditStationDialog({
         ? Number(form.duration_max)
         : undefined;
 
+      let advancedParams: any = {};
+      try {
+        if (station.advanced_params_json) {
+          advancedParams = JSON.parse(station.advanced_params_json);
+        }
+      } catch (e) {}
+
+      advancedParams.intensity = form.intensity;
+      advancedParams.lyrics_style_addons = form.lyrics_style_addons;
+      advancedParams.theme_pool = form.theme_pool
+        ? form.theme_pool.split(",").map((t) => t.trim()).filter(Boolean)
+        : [];
+
       return updateStation(station.id, {
         name: form.name.trim(),
         description: form.description.trim(),
@@ -116,6 +172,8 @@ export function EditStationDialog({
         duration_max: durationMax,
         keyscale: form.keyscale.trim(),
         timesignature: form.timesignature.trim(),
+        structure_ids: form.structure_ids,
+        advanced_params_json: JSON.stringify(advancedParams),
       });
     },
     onSuccess: () => {
@@ -304,6 +362,84 @@ export function EditStationDialog({
                 placeholder="e.g. 4/4"
                 value={form.timesignature}
                 onChange={(e) => updateField("timesignature", e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="border-t pt-4 mt-4 space-y-4">
+            <h3 className="text-sm font-medium">Advanced Dynamics & Lyrics</h3>
+            
+            {/* Song Structures */}
+            <div className="space-y-2">
+              <Label>Song Structures</Label>
+              {structures.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                  {structures.map((s) => (
+                    <div key={s.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`edit-structure-${s.id}`}
+                        checked={form.structure_ids.includes(s.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            updateField("structure_ids", [...form.structure_ids, s.id]);
+                          } else {
+                            updateField(
+                              "structure_ids",
+                              form.structure_ids.filter((id) => id !== s.id)
+                            );
+                          }
+                        }}
+                      />
+                      <Label htmlFor={`edit-structure-${s.id}`} className="text-sm font-normal cursor-pointer">
+                        {s.name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No global structures defined yet.</p>
+              )}
+            </div>
+
+            {/* Intensity + Prompt Style Addons */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Intensity</Label>
+                <Select
+                  value={form.intensity}
+                  onValueChange={(v) => updateField("intensity", v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Intensity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Low">Low</SelectItem>
+                    <SelectItem value="Moderate">Moderate</SelectItem>
+                    <SelectItem value="High">High</SelectItem>
+                    <SelectItem value="Extreme">Extreme</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-station-lyrics-addons">Prompt Style Addons</Label>
+                <Input
+                  id="edit-station-lyrics-addons"
+                  placeholder="e.g. Poetic, Aggressive"
+                  value={form.lyrics_style_addons}
+                  onChange={(e) => updateField("lyrics_style_addons", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Theme Pool */}
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-station-theme-pool">Theme Pool (comma-separated)</Label>
+              <Textarea
+                id="edit-station-theme-pool"
+                placeholder="e.g. Heartbreak, Overcoming adversity, Late night driving"
+                value={form.theme_pool}
+                onChange={(e) => updateField("theme_pool", e.target.value)}
+                rows={2}
               />
             </div>
           </div>

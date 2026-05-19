@@ -129,6 +129,22 @@ CREATE TABLE IF NOT EXISTS custom_themes (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS song_structures (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    genre TEXT DEFAULT '',
+    template TEXT NOT NULL,
+    is_system INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS station_structures (
+    station_id TEXT NOT NULL REFERENCES radio_stations(id) ON DELETE CASCADE,
+    structure_id TEXT NOT NULL REFERENCES song_structures(id) ON DELETE CASCADE,
+    PRIMARY KEY (station_id, structure_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_songs_created_at ON songs(created_at);
 CREATE INDEX IF NOT EXISTS idx_songs_is_favorite ON songs(is_favorite);
 CREATE INDEX IF NOT EXISTS idx_songs_rating ON songs(rating);
