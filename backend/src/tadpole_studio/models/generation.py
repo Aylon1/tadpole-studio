@@ -64,7 +64,7 @@ class GenerateRequest(BaseModel):
     lm_top_k: int = Field(default=0)
     lm_top_p: float = Field(default=0.9)
     use_cot_metas: bool = Field(default=True)
-    use_cot_caption: bool = Field(default=False)
+    use_cot_caption: bool = Field(default=True)
     use_cot_language: bool = Field(default=True)
 
     # HeartMuLa-specific

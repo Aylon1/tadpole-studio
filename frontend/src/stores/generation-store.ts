@@ -265,7 +265,7 @@ export const useGenerationStore = create<GenerationState>()((set) => ({
     lmTemperature: 0.85,
     batchSize: 2,
     audioFormat: "flac",
-    useCotCaption: false,
+    useCotCaption: true,
     useCotMetas: true,
     useCotLanguage: true,
   },
@@ -430,7 +430,7 @@ export const useGenerationStore = create<GenerationState>()((set) => ({
       lmTemperature: (params.lm_temperature as number) ?? 0.85,
       batchSize: (params.batch_size as number) ?? 2,
       audioFormat: (params.audio_format as string) ?? "flac",
-      useCotCaption: (params.use_cot_caption as boolean) ?? false,
+      useCotCaption: (params.use_cot_caption as boolean) ?? true,
       useCotMetas: (params.use_cot_metas as boolean) ?? true,
       useCotLanguage: (params.use_cot_language as boolean) ?? true,
     };

@@ -432,7 +432,7 @@ export interface DatasetConfigSummary {
 export interface SongStructure {
   id: string;
   name: string;
-  format_description: string;
+  template: string;
   created_at: string;
   updated_at: string;
 }

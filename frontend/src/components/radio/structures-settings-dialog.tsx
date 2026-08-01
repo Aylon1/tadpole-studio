@@ -44,7 +44,7 @@ export function StructuresSettingsDialog({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<SongStructure>>({
     name: "",
-    format_description: "",
+    template: "",
   });
 
   const createMutation = useMutation({
@@ -53,7 +53,7 @@ export function StructuresSettingsDialog({
       queryClient.invalidateQueries({ queryKey: ["structures"] });
       toast.success("Structure created");
       setEditingId(null);
-      setFormData({ name: "", format_description: "" });
+      setFormData({ name: "", template: "" });
     },
     onError: (err) => {
       toast.error(`Failed to create: ${err.message}`);
@@ -67,7 +67,7 @@ export function StructuresSettingsDialog({
       queryClient.invalidateQueries({ queryKey: ["structures"] });
       toast.success("Structure updated");
       setEditingId(null);
-      setFormData({ name: "", format_description: "" });
+      setFormData({ name: "", template: "" });
     },
     onError: (err) => {
       toast.error(`Failed to update: ${err.message}`);
@@ -86,7 +86,7 @@ export function StructuresSettingsDialog({
   });
 
   const handleSave = () => {
-    if (!formData.name || !formData.format_description) {
+    if (!formData.name || !formData.template) {
       toast.error("Name and format description are required");
       return;
     }
@@ -101,7 +101,7 @@ export function StructuresSettingsDialog({
     setEditingId(structure.id);
     setFormData({
       name: structure.name,
-      format_description: structure.format_description,
+      template: structure.template,
     });
   };
 
@@ -158,11 +158,11 @@ export function StructuresSettingsDialog({
                     <Label htmlFor="structure-format">Format Description</Label>
                     <Textarea
                       id="structure-format"
-                      value={formData.format_description || ""}
+                      value={formData.template || ""}
                       onChange={(e) =>
                         setFormData((prev) => ({
                           ...prev,
-                          format_description: e.target.value,
+                          template: e.target.value,
                         }))
                       }
                       placeholder="[Verse 1]&#10;...&#10;[Chorus]&#10;..."
@@ -199,7 +199,7 @@ export function StructuresSettingsDialog({
                       <div className="min-w-0 flex-1">
                         <p className="font-medium truncate">{structure.name}</p>
                         <p className="text-xs text-muted-foreground truncate font-mono">
-                          {structure.format_description.split("\n")[0]}...
+                          {structure.template?.split("\n")[0] || "No template defined"}...
                         </p>
                       </div>
                       <div className="flex items-center gap-1 ml-4">

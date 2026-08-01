@@ -42,3 +42,6 @@ docs/
 
 # Logs
 *.log
+
+# PID files
+pids/
