@@ -64,9 +64,9 @@ async def lifespan(app: FastAPI):
             await db.execute(
                 """INSERT INTO radio_stations (
                     id, name, description, is_preset, caption_template,
-                    genre, mood, instrumental, bpm_min, bpm_max,
-                    duration_min, duration_max, created_at, updated_at
-                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    genre, mood, instrumental, vocal_language, bpm_min, bpm_max,
+                    duration_min, duration_max, advanced_params_json, created_at, updated_at
+                ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     preset_id,
                     preset["name"],
@@ -75,10 +75,12 @@ async def lifespan(app: FastAPI):
                     preset.get("genre", ""),
                     preset.get("mood", ""),
                     1 if preset.get("instrumental", True) else 0,
+                    preset.get("vocal_language", "unknown"),
                     preset.get("bpm_min"),
                     preset.get("bpm_max"),
                     preset.get("duration_min", 30.0),
                     preset.get("duration_max", 120.0),
+                    preset.get("advanced_params_json", "{}"),
                     now_str,
                     now_str,
                 ),

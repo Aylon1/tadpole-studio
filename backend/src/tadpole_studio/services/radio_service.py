@@ -8,6 +8,7 @@ Inspired by:
 
 import json
 import random
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -24,6 +25,100 @@ RADIO_DEFAULT_SYSTEM_PROMPT = """You are a music caption generator. Given statio
 detailed caption for an AI music generator. Describe instrumentation, texture, \
 atmosphere, and sonic qualities. Be specific and varied — each caption should \
 feel unique. Output ONLY the caption text, nothing else."""
+
+LYRICS_SYSTEM_PROMPT = (
+    "You are a professional songwriter. When given song parameters and a structure, "
+    "write ONLY the song lyrics output. Use square brackets for ALL section headers: "
+    "[Verse 1], [Chorus], [Bridge], [Outro], [Intro]. Never use parentheses for "
+    "section headers. Output only the lyrics with section tags. No preamble, no "
+    "explanations, no commentary, no notes."
+)
+
+
+def _clean_lyrics_output(raw: str) -> str:
+    """Clean raw LLM lyrics output, removing prompt leakage and normalizing format.
+
+    Pipeline (in order):
+    1. Remove think tags
+    2. Remove markdown code fences
+    3. Strip preamble (text before first section tag)
+    4. Remove post-lyrics commentary
+    5. Normalize (Section) -> [Section]
+    6. Remove prompt leakage lines
+    7. Collapse multiple blank lines
+    8. Strip leading/trailing whitespace
+    """
+    text = raw
+
+    # 1. Think tag removal
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+    # 2. Markdown code fence removal — strip only the fence lines, keep content
+    text = re.sub(r"^```[^\n]*$", "", text, flags=re.MULTILINE)
+
+    # 3. Preamble stripping — remove text before first section tag
+    section_tag_pattern = r"\[(?:Verse|Chorus|Pre-Chorus|Bridge|Outro|Intro|Interlude|Solo|Hook|Drop|Build[- ]?Up|Breakdown|Final|Double|Guitar|Fiddle|Piano|Steel\s*Guitar|Atmospheric|Ambient|Orchestral|Shredding|Swing|Chill|Theme\s*[A-Z]|Dub|Instrumental)[^\]]*\]"
+    first_match = re.search(section_tag_pattern, text)
+    if first_match:
+        text = text[first_match.start():]
+
+    # 4. Post-lyrics commentary removal — keep content up to ~20 lines after last section header
+    all_sections = list(re.finditer(section_tag_pattern, text))
+    if all_sections:
+        last_section_end = all_sections[-1].end()
+        after_last = text[last_section_end:]
+        lines_after = after_last.split("\n")
+        if len(lines_after) > 20:
+            text = text[:last_section_end] + "\n".join(lines_after[:20])
+
+    # 5. Normalize (Section) -> [Section] for known section header types
+    section_names_list = [
+        "Verse", "Chorus", "Pre-Chorus", "Pre Chorus", "Bridge", "Outro",
+        "Intro", "Interlude", "Solo", "Hook", "Drop", "Build-Up", "Build Up",
+        "Breakdown", "Final", "Double", "Guitar", "Fiddle", "Piano",
+        "Steel Guitar", "Atmospheric", "Ambient", "Orchestral", "Shredding",
+        "Swing", "Chill", "Theme A", "Theme B", "Dub", "Instrumental",
+    ]
+    for name in section_names_list:
+        pattern = rf"^\({re.escape(name)}(\s*\d+)?\)"
+        text = re.sub(pattern, lambda m: f"[{name}{m.group(1) or ''}]", text, flags=re.MULTILINE)
+
+    # 6. Remove lines that are clearly prompt leakage
+    leakage_patterns = [
+        r"^STRICT\s+REQUIREMENTS.*$",
+        r"^STYLE\s+GUIDELINES.*$",
+        r"^LYRICS\s+MUST.*$",
+        r"^OUTPUT\s+FORMAT.*$",
+        r"^IMPORTANT.*$",
+        r"^REMEMBER.*$",
+        r"^NOTE[:\s].*$",
+        r"^The\s+following.*$",
+        r"^Here\s+are.*$",
+        r"^Below\s+are.*$",
+        r"^I'll.*$",
+        r"^I will.*$",
+        r"^Let me.*$",
+    ]
+    lines = text.split("\n")
+    cleaned_lines = []
+    for line in lines:
+        stripped = line.strip()
+        is_leakage = False
+        for pattern in leakage_patterns:
+            if re.match(pattern, stripped, re.IGNORECASE):
+                is_leakage = True
+                break
+        if not is_leakage:
+            cleaned_lines.append(line)
+    text = "\n".join(cleaned_lines)
+
+    # 7. Collapse multiple blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    # 8. Strip leading/trailing whitespace
+    text = text.strip()
+
+    return text
 
 
 def _row_to_station(row, structure_ids: Optional[list[str]] = None) -> StationResponse:
@@ -337,17 +432,21 @@ class RadioService:
     async def _get_radio_llm(self) -> tuple:
         """Read the configured radio LLM provider/model and return (provider, model_name, system_prompt).
 
-        Fallback chain: configured provider -> Ollama -> None.
+        Fallback chain: radio provider -> DJ provider -> Ollama -> None.
         """
         db = await get_db()
         cursor = await db.execute(
             "SELECT key, value FROM settings WHERE key IN ("
-            "'radio_llm_provider', 'radio_llm_model', 'radio_system_prompt')"
+            "'radio_llm_provider', 'radio_llm_model', 'radio_system_prompt', "
+            "'openai_compatible_api_base', 'dj_provider', 'dj_model')"
         )
         rows = await cursor.fetchall()
         provider_name = "none"
         model_name = ""
         custom_prompt = ""
+        api_base = ""
+        dj_provider_name = ""
+        dj_model_name = ""
         for r in rows:
             if r["key"] == "radio_llm_provider":
                 provider_name = r["value"]
@@ -355,19 +454,52 @@ class RadioService:
                 model_name = r["value"]
             elif r["key"] == "radio_system_prompt":
                 custom_prompt = r["value"]
+            elif r["key"] == "openai_compatible_api_base":
+                api_base = r["value"]
+            elif r["key"] == "dj_provider":
+                dj_provider_name = r["value"]
+            elif r["key"] == "dj_model":
+                dj_model_name = r["value"]
 
         system_prompt = custom_prompt if custom_prompt.strip() else RADIO_DEFAULT_SYSTEM_PROMPT
 
+        # Helper to try a provider+model pair
+        def try_provider(p_name: str, m_name: str):
+            p = get_provider(p_name)
+            if p is None:
+                return None
+            return (p, m_name)
+
+        # 1. Try radio-specific provider first
         if provider_name and provider_name != "none":
-            provider = get_provider(provider_name)
-            if provider is not None:
+            result = try_provider(provider_name, model_name)
+            if result:
+                p, m = result
                 await self._ensure_api_key_loaded(provider_name)
-                if await provider.is_available():
-                    return (provider, model_name, system_prompt)
+                if provider_name == "openai-compatible" and api_base:
+                    if hasattr(p, "set_api_base"):
+                        getattr(p, "set_api_base")(api_base)
+                if await p.is_available():
+                    return (p, m, system_prompt)
                 logger.warning(f"Radio LLM provider '{provider_name}' unavailable, trying fallbacks")
 
-        # Fallback to Ollama (e.g. on Windows where built-in MLX is unavailable, or none selected)
-        if provider_name != "ollama":
+        # 2. Auto-fallback to DJ provider if radio provider not configured or unavailable
+        if dj_provider_name and dj_provider_name != "none":
+            result = try_provider(dj_provider_name, dj_model_name)
+            if result:
+                p, m = result
+                await self._ensure_api_key_loaded(dj_provider_name)
+                if dj_provider_name == "openai-compatible" and api_base:
+                    if hasattr(p, "set_api_base"):
+                        getattr(p, "set_api_base")(api_base)
+                if await p.is_available():
+                    logger.info(f"Radio LLM: using DJ provider {dj_provider_name}/{m}")
+                    return (p, m, system_prompt)
+                logger.warning(f"DJ LLM provider '{dj_provider_name}' unavailable, trying fallbacks")
+
+        # 3. Fallback to Ollama
+        ollama_name = provider_name if provider_name != dj_provider_name else "ollama"
+        if ollama_name != "ollama":
             ollama = get_provider("ollama")
             if ollama is not None and await ollama.is_available():
                 ollama_models = await ollama.list_models_async()
@@ -498,8 +630,24 @@ class RadioService:
         if station.instrumental:
             return ""
 
+        # Check for probabilistic instrumental/vocal toggle
+        lyrics_probability = 1.0  # Default: always lyrics for non-instrumental stations
+        try:
+            advanced = json.loads(station.advanced_params_json) if station.advanced_params_json else {}
+            lyrics_probability = advanced.get("lyrics_probability", 1.0)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        if random.random() > lyrics_probability:
+            logger.info(f"Radio lyrics: randomly skipping lyrics for station '{station.name}' (probability={lyrics_probability})")
+            return ""
+
         provider, model_name, _prompt = await self._get_radio_llm()
         if provider is None:
+            logger.warning(
+                f"Radio lyrics: no LLM provider available for non-instrumental station "
+                f"'{station.name}' — song will be generated as instrumental"
+            )
             return ""
 
         logger.info(f"Radio lyrics: generating via {provider.name}/{model_name or 'default'}")
@@ -510,8 +658,6 @@ class RadioService:
             advanced_params = json.loads(station.advanced_params_json) if station.advanced_params_json else {}
         except Exception:
             pass
-
-        import random
 
         # Theme selection
         theme_pool = advanced_params.get("theme_pool", [])
@@ -555,28 +701,21 @@ class RadioService:
         mood = station.mood if station.mood else "Standard"
 
         prompt_text = (
-            f"Write a {genre} song in {vocal_lang} about '{station_chosen_theme}' using this exact structure:\n"
-            f"{station_chosen_structure}\n\n"
-            "STRICT REQUIREMENTS:\n"
-            "1. Write ONLY the song lyrics - no translations, no explanations, no notes\n"
-            f"2. Use ONLY the specified language: {vocal_lang}\n"
-            "3. Follow the structure EXACTLY as shown\n"
-            "4. Format each section header exactly as shown (e.g. [Verse 1])\n"
-            "5. Never include any text outside the lyrics structure\n"
-            f"6. Target Duration: {station_duration}s\n"
-            f"7. Musical Key: {station_keyscale}\n\n"
-            "STYLE GUIDELINES:\n"
-            f"- {lyrics_style_addons}\n"
-            f"- {intensity} feel\n"
-            f"- {mood} mood\n"
-            f"- Concept/Description: {station.description}\n"
-            "- Use vivid imagery and emotional resonance\n"
-            f"- Match the rhythm and phrasing to {genre} conventions\n\n"
-            "BACKGROUND VIBE/CAPTION (For Optional Context):\n"
-            f"{caption}\n\n"
+            f"Write a {genre} song in {vocal_lang} about '{station_chosen_theme}'.\n\n"
+            f"Station: {station.name}\n"
+            f"Structure:\n{station_chosen_structure}\n\n"
+            f"Style: {mood} mood, {intensity} feel. {lyrics_style_addons}.\n"
+            f"Concept: {station.description}\n"
+            f"Match {genre} conventions with vivid imagery and emotional resonance.\n\n"
+            f"Background context: {caption}\n\n"
+            "Output only the lyrics with section tags."
         )
 
         messages = [
+            {
+                "role": "system",
+                "content": LYRICS_SYSTEM_PROMPT,
+            },
             {
                 "role": "user",
                 "content": prompt_text,
@@ -584,10 +723,9 @@ class RadioService:
         ]
 
         try:
-            import re
-            raw = await provider.chat(messages, model=model_name, max_tokens=800, temperature=0.8)
+            raw = await provider.chat(messages, model=model_name, max_tokens=1500, temperature=0.8)
             logger.info(f"Radio LLM raw lyrics output:\n{raw}")
-            cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+            cleaned = _clean_lyrics_output(raw)
             if cleaned:
                 logger.info(f"Radio LLM lyrics generated via {provider.name}:\n{cleaned[:100]}...")
                 return cleaned
@@ -629,6 +767,27 @@ class RadioService:
                 caption = f"A {' '.join(tpl_parts)} track" if tpl_parts else "A music track"
 
         llm_lyrics = await self._generate_lyrics_with_llm(station, caption)
+
+        # Validate lyrics quality before generation (safety net)
+        if llm_lyrics and not station.instrumental:
+            has_tags = bool(re.search(
+                r'\[(?:Verse|Chorus|Bridge|Outro|Intro)\b',
+                llm_lyrics, re.IGNORECASE
+            ))
+            has_leakage = any(
+                kw in llm_lyrics.upper()
+                for kw in ['STRICT REQUIREMENTS', 'STYLE GUIDELINES', 'WRITE A']
+            )
+            if not has_tags:
+                logger.warning(
+                    f"Radio lyrics: no structural tags found for station '{station.name}', "
+                    f"lyrics may not produce structured music"
+                )
+            if has_leakage:
+                logger.warning(
+                    f"Radio lyrics: prompt leakage detected for station '{station.name}', "
+                    f"output cleaning may have failed"
+                )
 
         # Wait for GPU availability (radio can afford to wait for prior generation)
         acquired = await gpu_lock.await_acquire("radio")

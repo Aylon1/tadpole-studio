@@ -1,3 +1,5 @@
+import json
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS songs (
     id TEXT PRIMARY KEY,
@@ -319,10 +321,38 @@ RADIO_PRESETS = [
         "genre": "medievalcore, bardcore, tavernwave",
         "mood": "chill",
         "instrumental": False,
+        "vocal_language": "English",
         "bpm_min": 60,
         "bpm_max": 130,
         "duration_min": 60.0,
         "duration_max": 180.0,
         "caption_template": "Music as if played in medieval times, using instruments like lutes, harps, flutes",
+        "advanced_params_json": json.dumps({
+            "lyrics_probability": 0.65,
+            "theme_pool": [
+                "a tavern ballad about camaraderie and ale",
+                "a knight's journey home from a long war",
+                "a medieval love story between a lord and a peasant",
+                "life in a bustling medieval marketplace",
+                "a bard's tale of a great adventure on the road",
+                "a harvest festival celebration in a small village",
+                "a dragon's legend told by a village elder",
+                "a wandering minstrel seeking fortune and glory",
+                "a royal wedding in a grand cathedral",
+                "a hard-fought battle and the victory feast afterward",
+                "enchantment and magic in an ancient forest",
+                "a king's lament for a lost kingdom",
+                "rowing a boat on a misty river at dawn",
+                "a blacksmith's song about crafting a legendary sword",
+                "a Christmas carol in medieval style",
+                "sailors singing on a medieval trading vessel",
+                "a jester's foolhardy prank at court",
+                "two archers competing in a royal tournament",
+                "a pilgrimage to a sacred shrine",
+                "a quiet evening by the hearth in a stone cottage"
+            ],
+            "lyrics_style_addons": "Use archaic language, poetic meter, medieval imagery. Reference lutes, taverns, castles, knights, nature, and ancient traditions.",
+            "intensity": "Warm and storytelling"
+        }),
     },
 ]
